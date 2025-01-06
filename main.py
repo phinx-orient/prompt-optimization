@@ -1,13 +1,10 @@
-from openai import OpenAI
 import os
-from fastapi import FastAPI, HTTPException
+import streamlit as st
 from pydantic import BaseModel
-from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
-import logging
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
+from openai import OpenAI
+from dotenv import load_dotenv
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -63,49 +60,54 @@ The final prompt you output should adhere to the following structure below. Do n
 """.strip()
 
 
-app = FastAPI()
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
-)
-
-
-class TaskRequest(BaseModel):
-    task_or_prompt: str
-
 # Access the OpenAI API key from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 
-@app.post("/generate-prompt/")
+class TaskRequest(BaseModel):
+    task_or_prompt: str
+
+
 def generate_prompt(request: TaskRequest):
     try:
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": META_PROMPT,
-                },
+                {"role": "system", "content": META_PROMPT},
                 {
                     "role": "user",
-                    "content": "Task, Goal, or Current Prompt:\n"
-                    + request.task_or_prompt,
+                    "content": f"Task, Goal, or Current Prompt:\n{request.task_or_prompt}",
                 },
             ],
         )
         return {"prompt": completion.choices[0].message.content}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise Exception(f"Error generating prompt: {str(e)}")
 
 
-# Add a health check endpoint
-@app.get("/health/")
-def health_check():
-    logging.info("Health check endpoint called.")
-    return {"status": "healthy"}
+# Streamlit app setup
+st.title("Prompt Generator")
+
+# User input for task or prompt
+user_input = st.text_area("Enter your task or prompt:")
+
+if st.button("Generate Prompt"):
+    if user_input:
+        request = TaskRequest(task_or_prompt=user_input)
+        result = generate_prompt(request)  # Call the existing function
+        st.session_state.generated_prompt = result[
+            "prompt"
+        ]  # Store the result in session state
+    else:
+        st.error("Please enter a task or prompt.")
+
+# Display the generated prompt
+if "generated_prompt" in st.session_state:
+    st.subheader("Generated Prompt:")
+    editable_prompt = st.text_area(
+        "Edit the generated prompt:", st.session_state.generated_prompt, height=200
+    )
+    st.session_state.generated_prompt = (
+        editable_prompt  # Update the session state with the edited prompt
+    )
